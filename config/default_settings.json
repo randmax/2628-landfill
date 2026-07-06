@@ -1,0 +1,37 @@
+{
+  "sdk": {
+    "root": "./dji_thermal_sdk_v1.8_20250829",
+    "windows_lib_dir": "./dji_thermal_sdk_v1.8_20250829/tsdk-core/lib/windows/release_x64"
+  },
+  "radiometry": {
+    "emissivity": 0.95,
+    "distance": 25.0,
+    "humidity": 50.0,
+    "reflected_temperature": 20.0,
+    "ambient_temperature": 20.0
+  },
+  "roi": {
+    "width": 20,
+    "height": 20,
+    "stride": 1,
+    "thermal_gsd_m_per_px": 0.05,
+    "auto_thermal_gsd": true,
+    "thermal_hfov_deg": 61.0,
+    "min_valid_ratio": 0.95,
+    "ranking_metric": "mean"
+  },
+  "display": {
+    "palette": "inferno",
+    "scale_mode": "auto",
+    "manual_min": 0.0,
+    "manual_max": 80.0,
+    "show_box": true,
+    "show_label": true,
+    "show_colorbar": true
+  },
+  "paths": {
+    "cache_dir": "./cache",
+    "output_dir": "./output",
+    "log_file": "./logs/application.log"
+  }
+}

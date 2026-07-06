@@ -1,0 +1,21 @@
+# Python futási melléktermékek
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+
+# Helyi naplók, cache-ek és kimenetek
+logs/
+cache/
+cache_*/
+output/
+
+# Helyi DJI SDK és tesztadatok: nagy bináris csomagok, nem forráskód
+dji_thermal_sdk_v1.8_20250829/
+TestData_01/
+
+# Windows / IDE zaj
+Thumbs.db
+.DS_Store
+.vscode/
