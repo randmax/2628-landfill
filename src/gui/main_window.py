@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
     QMenu,
     QMessageBox,
     QProgressBar,
+    QPushButton,
     QScrollArea,
     QSplitter,
     QStatusBar,
@@ -86,7 +87,7 @@ class MainWindow(QMainWindow):
         for group in (
             ("choose_directory", "scan_directory"),
             ("process_current", "process_all", "export_webodm_radiometric", "cancel_processing"),
-            ("toggle_view_mode", "previous_image", "next_image", "previous_hit", "next_hit"),
+            ("toggle_view_mode",),
             ("export_results", "open_output_dir"),
         ):
             for key in group:
@@ -104,7 +105,24 @@ class MainWindow(QMainWindow):
         left_layout.addWidget(self.stats_label)
         left_layout.addWidget(self.image_list)
 
+        viewer_panel = QWidget()
+        viewer_layout = QVBoxLayout(viewer_panel)
+        viewer_layout.setContentsMargins(0, 0, 0, 0)
         self.viewer = ImageViewer()
+        viewer_layout.addWidget(self.viewer, 1)
+        image_nav = QHBoxLayout()
+        image_nav.addStretch(1)
+        self.previous_image_button = QPushButton("Előző kép")
+        self.previous_image_button.clicked.connect(self.previous_image)
+        self.next_image_button = QPushButton("Következő kép")
+        self.next_image_button.clicked.connect(self.next_image)
+        self.clear_points_button = QPushButton("Mérési pontok törlése")
+        self.clear_points_button.clicked.connect(self.clear_temperature_points)
+        image_nav.addWidget(self.previous_image_button)
+        image_nav.addWidget(self.next_image_button)
+        image_nav.addWidget(self.clear_points_button)
+        image_nav.addStretch(1)
+        viewer_layout.addLayout(image_nav)
 
         right_tabs = QTabWidget()
         self.settings_panel = SettingsPanel()
@@ -120,7 +138,7 @@ class MainWindow(QMainWindow):
         self.settings_panel.settings_changed.connect(self._refresh_current_image)
 
         splitter.addWidget(left)
-        splitter.addWidget(self.viewer)
+        splitter.addWidget(viewer_panel)
         splitter.addWidget(right_tabs)
         splitter.setSizes([320, 850, 360])
         self.setCentralWidget(splitter)
@@ -150,8 +168,6 @@ class MainWindow(QMainWindow):
             "previous_image": ("Előző kép", self.previous_image),
             "next_image": ("Következő kép", self.next_image),
             "toggle_view_mode": ("Hőkép / RGB nézet váltása", self.toggle_view_mode),
-            "previous_hit": ("Előző találat", self.previous_hit),
-            "next_hit": ("Következő találat", self.next_hit),
             "export_results": ("CSV exportálása", self.export_results),
             "open_output_dir": ("Kimeneti könyvtár megnyitása", self.open_output_dir),
             "clear_cache": ("Cache törlése", self.clear_cache),
@@ -180,8 +196,6 @@ class MainWindow(QMainWindow):
         self._add_menu_actions(navigation_menu, actions, ("toggle_view_mode",))
         navigation_menu.addSeparator()
         self._add_menu_actions(navigation_menu, actions, ("previous_image", "next_image"))
-        navigation_menu.addSeparator()
-        self._add_menu_actions(navigation_menu, actions, ("previous_hit", "next_hit"))
 
         results_menu = self.menuBar().addMenu("Eredmények")
         self._add_menu_actions(results_menu, actions, ("export_results", "open_output_dir"))
@@ -329,18 +343,9 @@ class MainWindow(QMainWindow):
         self.operation_label.setText("RGB nézet" if self.view_mode == "rgb" else "Hőkép nézet")
         self._refresh_current_image()
 
-    def previous_hit(self) -> None:
-        self._move_hit(-1)
-
-    def next_hit(self) -> None:
-        self._move_hit(1)
-
-    def _move_hit(self, direction: int) -> None:
-        hit_indexes = [i for i, r in enumerate(self.records) if r.roi_result is not None]
-        if not hit_indexes:
-            return
-        current_pos = hit_indexes.index(self.current_index) if self.current_index in hit_indexes else 0
-        self.image_list.setCurrentRow(hit_indexes[(current_pos + direction) % len(hit_indexes)])
+    def clear_temperature_points(self) -> None:
+        self.viewer.clear_measurements()
+        self.operation_label.setText("Mérési pontok törölve.")
 
     def export_results(self) -> None:
         full, hotspots = export_csv(self.records, "output")
@@ -420,6 +425,7 @@ class MainWindow(QMainWindow):
                 if img is not None:
                     rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
                     self.viewer.set_image(rgb)
+                    self.viewer.set_temperature_matrix(None)
                     self.viewer.set_roi(None)
                     return
             self.operation_label.setText("Ehhez a hőképhez nem található RGB pár.")
@@ -427,6 +433,7 @@ class MainWindow(QMainWindow):
         if matrix is not None:
             rgb = render_temperature(matrix, self.settings_panel.palette.currentText())
             self.viewer.set_image(rgb)
+            self.viewer.set_temperature_matrix(matrix)
             if record.roi_result:
                 self.viewer.set_roi(record.roi_result, self.settings_panel.show_box.isChecked(), self.settings_panel.show_label.isChecked())
             else:
@@ -436,6 +443,7 @@ class MainWindow(QMainWindow):
         if img is not None:
             rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
             self.viewer.set_image(rgb)
+            self.viewer.set_temperature_matrix(None)
             self._show_roi_preview(rgb.shape[1], rgb.shape[0])
 
     def _show_roi_preview(self, image_w: int, image_h: int) -> None:

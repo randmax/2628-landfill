@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import math
+
+import numpy as np
 from PySide6.QtCore import QPointF, QRectF, Qt
-from PySide6.QtGui import QImage, QPen, QPixmap
+from PySide6.QtGui import QBrush, QImage, QPen, QPixmap
 from PySide6.QtWidgets import QGraphicsPixmapItem, QGraphicsRectItem, QGraphicsScene, QGraphicsTextItem, QGraphicsView
 
 from src.models.roi_result import RoiResult
@@ -19,6 +22,8 @@ class ImageViewer(QGraphicsView):
         self.pixmap_item: QGraphicsPixmapItem | None = None
         self.box_item: QGraphicsRectItem | None = None
         self.label_item: QGraphicsTextItem | None = None
+        self.temperature_matrix: np.ndarray | None = None
+        self.measurement_items: list[dict[str, object]] = []
 
     def set_image(self, rgb) -> None:
         """Show an RGB uint8 image."""
@@ -31,6 +36,7 @@ class ImageViewer(QGraphicsView):
         self.fitInView(self.scene.sceneRect(), Qt.KeepAspectRatio)
         self.box_item = None
         self.label_item = None
+        self.measurement_items = []
 
     def set_roi(self, roi: RoiResult | None, show_box: bool = True, show_label: bool = True) -> None:
         """Draw or clear the ROI overlay."""
@@ -75,6 +81,67 @@ class ImageViewer(QGraphicsView):
         self.label_item = self.scene.addText(label)
         self.label_item.setDefaultTextColor(Qt.black)
         self.label_item.setPos(QPointF(x, max(0, y - 28)))
+
+    def set_temperature_matrix(self, matrix: np.ndarray | None) -> None:
+        """Beállítja a kattintható hőmérsékleti mintavétel forrását."""
+        self.temperature_matrix = matrix
+        self.clear_measurements()
+
+    def clear_measurements(self) -> None:
+        """Eltávolítja a képre kattintott hőmérsékleti pontokat."""
+        for measurement in self.measurement_items:
+            for item in measurement["items"]:
+                self.scene.removeItem(item)
+        self.measurement_items = []
+
+    def mousePressEvent(self, event) -> None:
+        if event.button() == Qt.LeftButton and self._add_temperature_measurement(event):
+            return
+        if event.button() == Qt.RightButton and self._remove_nearest_measurement(event):
+            return
+        super().mousePressEvent(event)
+
+    def _add_temperature_measurement(self, event) -> bool:
+        if self.temperature_matrix is None:
+            return False
+        point = self.mapToScene(event.position().toPoint())
+        x = int(round(point.x()))
+        y = int(round(point.y()))
+        height, width = self.temperature_matrix.shape[:2]
+        if x < 0 or y < 0 or x >= width or y >= height:
+            return False
+        temperature = float(self.temperature_matrix[y, x])
+        if not math.isfinite(temperature):
+            return False
+
+        marker_pen = QPen(Qt.red)
+        marker_pen.setWidth(2)
+        marker_brush = QBrush(Qt.red)
+        marker = self.scene.addEllipse(x - 4, y - 4, 8, 8, marker_pen, marker_brush)
+        label = self.scene.addText(f"{temperature:.1f} °C\n({x}, {y})")
+        label.setDefaultTextColor(Qt.black)
+        label.setPos(QPointF(x + 6, y - 24))
+        self.measurement_items.append({"point": QPointF(x, y), "items": [marker, label]})
+        return True
+
+    def _remove_nearest_measurement(self, event) -> bool:
+        if not self.measurement_items:
+            return False
+        point = self.mapToScene(event.position().toPoint())
+        nearest_index = -1
+        nearest_distance = float("inf")
+        for index, measurement in enumerate(self.measurement_items):
+            measured_point = measurement["point"]
+            distance = math.hypot(point.x() - measured_point.x(), point.y() - measured_point.y())
+            if distance < nearest_distance:
+                nearest_distance = distance
+                nearest_index = index
+        if nearest_index < 0 or nearest_distance > 24:
+            return False
+        measurement = self.measurement_items.pop(nearest_index)
+        for item in measurement["items"]:
+            self.scene.removeItem(item)
+        return True
 
     def wheelEvent(self, event) -> None:
         """Zoom under mouse wheel."""
