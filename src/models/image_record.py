@@ -49,6 +49,7 @@ class ImageRecord:
     """Project state for one source image."""
 
     filepath: str
+    rgb_filepath: str | None = None
     processing_status: str = "feldolgozatlan"
     error_message: str = ""
     metadata: ImageMetadata = field(default_factory=ImageMetadata)
@@ -92,6 +93,7 @@ class ImageRecord:
         roi = RoiResult(**roi_data) if roi_data else None
         return cls(
             filepath=data["filepath"],
+            rgb_filepath=data.get("rgb_filepath"),
             processing_status=data.get("processing_status", "feldolgozatlan"),
             error_message=data.get("error_message", ""),
             metadata=metadata,

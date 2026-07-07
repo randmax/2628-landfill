@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 from pathlib import Path
 
 import cv2
@@ -44,6 +45,7 @@ from src.gui.settings_panel import SettingsPanel
 
 
 IMAGE_PATTERNS = ("*.JPG", "*.JPEG", "*.jpg", "*.jpeg")
+THERMAL_SUFFIXES = ("_T", "_R")
 
 
 class MainWindow(QMainWindow):
@@ -56,6 +58,7 @@ class MainWindow(QMainWindow):
         self.records: list[ImageRecord] = []
         self.current_dir: Path | None = None
         self.current_index = -1
+        self.view_mode = "thermal"
         self.cache = CacheStore("cache")
         self.project_store = ProjectStore()
         self.metadata_reader = MetadataReader()
@@ -83,7 +86,7 @@ class MainWindow(QMainWindow):
         for group in (
             ("choose_directory", "scan_directory"),
             ("process_current", "process_all", "export_webodm_radiometric", "cancel_processing"),
-            ("previous_image", "next_image", "previous_hit", "next_hit"),
+            ("toggle_view_mode", "previous_image", "next_image", "previous_hit", "next_hit"),
             ("export_results", "open_output_dir"),
         ):
             for key in group:
@@ -146,6 +149,7 @@ class MainWindow(QMainWindow):
             "cancel_processing": ("Feldolgozás leállítása", self.cancel_processing),
             "previous_image": ("Előző kép", self.previous_image),
             "next_image": ("Következő kép", self.next_image),
+            "toggle_view_mode": ("Hőkép / RGB nézet váltása", self.toggle_view_mode),
             "previous_hit": ("Előző találat", self.previous_hit),
             "next_hit": ("Következő találat", self.next_hit),
             "export_results": ("CSV exportálása", self.export_results),
@@ -173,6 +177,8 @@ class MainWindow(QMainWindow):
         self._add_menu_actions(processing_menu, actions, ("cancel_processing",))
 
         navigation_menu = self.menuBar().addMenu("Navigáció")
+        self._add_menu_actions(navigation_menu, actions, ("toggle_view_mode",))
+        navigation_menu.addSeparator()
         self._add_menu_actions(navigation_menu, actions, ("previous_image", "next_image"))
         navigation_menu.addSeparator()
         self._add_menu_actions(navigation_menu, actions, ("previous_hit", "next_hit"))
@@ -203,7 +209,20 @@ class MainWindow(QMainWindow):
         for pattern in IMAGE_PATTERNS:
             paths.extend(self.current_dir.rglob(pattern))
         paths = sorted(set(paths))
-        self.records = [ImageRecord(str(path)) for path in paths]
+        thermal_paths = [path for path in paths if _is_thermal_image(path)]
+        rgb_by_key = {_image_pair_key(path): path for path in paths if _is_rgb_image(path)}
+        self.records = []
+        for path in thermal_paths:
+            key = _image_pair_key(path)
+            rgb_path = rgb_by_key.get(key) or _guess_rgb_pair(path)
+            self.records.append(
+                ImageRecord(
+                    filepath=str(path),
+                    rgb_filepath=str(rgb_path) if rgb_path and rgb_path.exists() else None,
+                )
+            )
+        paired = sum(1 for record in self.records if record.rgb_filepath)
+        self.operation_label.setText(f"Betöltve: {len(self.records)} hőkép, RGB pár: {paired}")
         self._refresh_list()
         self._refresh_stats()
         if self.records:
@@ -304,6 +323,12 @@ class MainWindow(QMainWindow):
         if self.current_index < len(self.records) - 1:
             self.image_list.setCurrentRow(self.current_index + 1)
 
+    def toggle_view_mode(self) -> None:
+        """Váltás a radiometrikus hőkép és a hozzá tartozó RGB kép között."""
+        self.view_mode = "rgb" if self.view_mode == "thermal" else "thermal"
+        self.operation_label.setText("RGB nézet" if self.view_mode == "rgb" else "Hőkép nézet")
+        self._refresh_current_image()
+
     def previous_hit(self) -> None:
         self._move_hit(-1)
 
@@ -389,6 +414,15 @@ class MainWindow(QMainWindow):
 
     def _show_record(self, record: ImageRecord) -> None:
         """Megjeleníti az aktuális képet, feldolgozás után radiometrikus előnézettel."""
+        if self.view_mode == "rgb":
+            if record.rgb_filepath:
+                img = cv2.imread(record.rgb_filepath)
+                if img is not None:
+                    rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+                    self.viewer.set_image(rgb)
+                    self.viewer.set_roi(None)
+                    return
+            self.operation_label.setText("Ehhez a hőképhez nem található RGB pár.")
         matrix = self._matrix_for_record(record)
         if matrix is not None:
             rgb = render_temperature(matrix, self.settings_panel.palette.currentText())
@@ -444,7 +478,10 @@ class MainWindow(QMainWindow):
         ok = sum(1 for r in self.records if r.processing_status == "sikeres")
         bad = sum(1 for r in self.records if r.processing_status == "hibas")
         pending = total - ok - bad
-        self.stats_label.setText(f"Képek: {total} | feldolgozott: {ok} | hibás: {bad} | várakozik: {pending}")
+        paired = sum(1 for r in self.records if r.rgb_filepath)
+        self.stats_label.setText(
+            f"Hőképek: {total} | RGB pár: {paired} | feldolgozott: {ok} | hibás: {bad} | várakozik: {pending}"
+        )
 
     def _open_result_row(self, row: int, _column: int) -> None:
         item = self.results.item(row, 1)
@@ -455,3 +492,49 @@ class MainWindow(QMainWindow):
             if record.filepath == filepath:
                 self.image_list.setCurrentRow(index)
                 break
+
+
+def _image_pair_key(path: Path) -> str:
+    """DJI fájlnévből párosítási kulcsot képez, elsősorban a képsorszám alapján."""
+    match = re.search(r"DJI_(\d+)_(\d{4})_[A-Z]\.jpe?g$", path.name, flags=re.IGNORECASE)
+    if match:
+        return match.group(2)
+    stem = path.stem
+    for suffix in (*THERMAL_SUFFIXES, "_V"):
+        if stem.upper().endswith(suffix):
+            return stem[: -len(suffix)]
+    return stem
+
+
+def _is_thermal_image(path: Path) -> bool:
+    return (
+        bool(re.search(r"_[TR]\.jpe?g$", path.name, flags=re.IGNORECASE))
+        or path.parent.name.upper().endswith("_T")
+        or "THERMAL" in path.parent.name.upper()
+    )
+
+
+def _is_rgb_image(path: Path) -> bool:
+    return bool(re.search(r"_V\.jpe?g$", path.name, flags=re.IGNORECASE)) or "RGB" in path.parent.name.upper()
+
+
+def _guess_rgb_pair(thermal_path: Path) -> Path | None:
+    """Tipikus M3T könyvtárstruktúrában megpróbálja kitalálni az RGB párt."""
+    rgb_name = re.sub(r"_[TR](\.jpe?g)$", r"_V\1", thermal_path.name, flags=re.IGNORECASE)
+    candidates = [
+        thermal_path.with_name(rgb_name),
+        thermal_path.parent.parent / "M3T_RGB" / rgb_name,
+        thermal_path.parent.parent / "RGB" / rgb_name,
+    ]
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    key = _image_pair_key(thermal_path)
+    # Egyes DJI mentéseknél az RGB timestamp eltérhet, ilyenkor a képsorszám a biztos kapocs.
+    for folder in (thermal_path.parent.parent / "M3T_RGB", thermal_path.parent.parent / "RGB"):
+        if not folder.exists():
+            continue
+        matches = sorted(folder.glob(f"DJI_*_{key}_V.JPG")) + sorted(folder.glob(f"DJI_*_{key}_V.jpg"))
+        if matches:
+            return matches[0]
+    return None

@@ -41,14 +41,20 @@ A homersekleti matrixot a dokumentalt `dirp_measure_ex` API allitja elo FLOAT32 
 
 ## Hasznalat
 
-1. Kattints a `Munkakonyvtar kivalasztasa` gombra.
-2. A program megkeresi a JPG/JPEG kepeket.
+1. Kattints a `Munkakönyvtár kiválasztása` gombra.
+2. A program megkeresi a JPG/JPEG képeket. Ha a munkakönyvtár RGB és thermal almappákat is tartalmaz, akkor csak a termál képek kerülnek a feldolgozási listába, az azonos sorszámú RGB kép pedig párosítva lesz velük.
 3. Allitsd be a ROI meretet, stride-ot es a rangsorolasi metrikat.
 4. Inditsd az `Aktualis kep feldolgozasa` vagy `Osszes kep feldolgozasa` muveletet.
 5. A talalatok a jobb oldali `Talalatok` fulon rendezhetok.
 6. `CSV exportalasa` ket fajlt keszit az `output` konyvtarba:
    - `thermal_results_sorted.csv`
    - `thermal_hotspots_sorted.csv`
+
+## RGB és termál kép-párosítás
+
+A `Munkakönyvtár kiválasztása` gombbal olyan gyökérkönyvtár is megadható, amelyben például `M3T_RGB` és `M3T_T` almappa van. A program a DJI fájlnévben lévő négyjegyű képsorszám alapján párosít, ezért akkor is megtalálja az RGB párt, ha a thermal és RGB timestamp egy másodperccel eltér.
+
+A `Hőkép / RGB nézet váltása` gombbal az aktuális termál kép és a hozzá tartozó RGB kép között lehet váltani. A feldolgozás, a WebODM export és a találati lista továbbra is a radiometrikus hőkameraképekkel dolgozik.
 
 ## WebODM radiometrikus export
 
