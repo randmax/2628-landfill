@@ -33,19 +33,31 @@ def enrich_roi_georeference(
     if metadata.gps_latitude is None or metadata.gps_longitude is None:
         return roi
 
-    east_m = (center_x - image_w / 2.0) * gsd_m_per_px
-    north_m = -(center_y - image_h / 2.0) * gsd_m_per_px
+    point = pixel_to_gps(metadata, image_shape, center_x, center_y, gsd_m_per_px)
+    if point is not None:
+        roi.center_latitude, roi.center_longitude = point
+    return roi
+
+
+def pixel_to_gps(
+    metadata: ImageMetadata,
+    image_shape: tuple[int, int],
+    pixel_x: float,
+    pixel_y: float,
+    gsd_m_per_px: float,
+) -> tuple[float, float] | None:
+    """Képpontból becsült GPS koordinátát számol a kép középponti GPS-e alapján."""
+    if metadata.gps_latitude is None or metadata.gps_longitude is None:
+        return None
+
+    image_h, image_w = image_shape
+    east_m = (pixel_x - image_w / 2.0) * gsd_m_per_px
+    north_m = -(pixel_y - image_h / 2.0) * gsd_m_per_px
     yaw = metadata.flight_yaw if metadata.flight_yaw is not None else metadata.gimbal_yaw
     if yaw is not None:
         north_m, east_m = _rotate_north_east(north_m, east_m, yaw)
 
-    roi.center_latitude, roi.center_longitude = offset_lat_lon(
-        metadata.gps_latitude,
-        metadata.gps_longitude,
-        north_m,
-        east_m,
-    )
-    return roi
+    return offset_lat_lon(metadata.gps_latitude, metadata.gps_longitude, north_m, east_m)
 
 
 def resolve_thermal_gsd(

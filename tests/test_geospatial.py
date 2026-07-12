@@ -1,6 +1,6 @@
 from src.models.image_record import ImageMetadata
 from src.models.roi_result import RoiResult
-from src.thermal.geospatial import enrich_roi_georeference
+from src.thermal.geospatial import enrich_roi_georeference, pixel_to_gps
 
 
 def test_enrich_roi_georeference_adds_center_and_metric_size() -> None:
@@ -21,3 +21,10 @@ def test_enrich_roi_georeference_adds_center_and_metric_size() -> None:
     assert enriched.relative_altitude == 80.0
     assert enriched.absolute_altitude == 180.0
 
+
+def test_pixel_to_gps_returns_image_center_coordinate() -> None:
+    metadata = ImageMetadata(gps_latitude=47.0, gps_longitude=19.0)
+
+    point = pixel_to_gps(metadata, (512, 640), 320, 256, 0.05)
+
+    assert point == (47.0, 19.0)

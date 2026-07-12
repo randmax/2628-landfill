@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import math
+from collections.abc import Callable
 
 import numpy as np
 from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtGui import QBrush, QColor, QFont, QImage, QPen, QPixmap
-from PySide6.QtWidgets import QGraphicsPixmapItem, QGraphicsRectItem, QGraphicsScene, QGraphicsTextItem, QGraphicsView
+from PySide6.QtWidgets import QApplication, QGraphicsPixmapItem, QGraphicsRectItem, QGraphicsScene, QGraphicsTextItem, QGraphicsView
 
 from src.models.roi_result import RoiResult
 
@@ -23,7 +24,9 @@ class ImageViewer(QGraphicsView):
         self.box_item: QGraphicsRectItem | None = None
         self.label_item: QGraphicsTextItem | None = None
         self.temperature_matrix: np.ndarray | None = None
+        self.point_info_provider: Callable[[int, int, float], tuple[str, str]] | None = None
         self.measurement_items: list[dict[str, object]] = []
+        self.last_measurement_copy_text: str | None = None
 
     def set_image(self, rgb) -> None:
         """Show an RGB uint8 image."""
@@ -93,12 +96,24 @@ class ImageViewer(QGraphicsView):
             self.viewport().setCursor(Qt.ArrowCursor)
         self.clear_measurements()
 
+    def set_point_info_provider(self, provider: Callable[[int, int, float], tuple[str, str]] | None) -> None:
+        """Beállítja, milyen felirat és másolható szöveg készüljön a mérési ponthoz."""
+        self.point_info_provider = provider
+
     def clear_measurements(self) -> None:
         """Eltávolítja a képre kattintott hőmérsékleti pontokat."""
         for measurement in self.measurement_items:
             for item in measurement["items"]:
                 self.scene.removeItem(item)
         self.measurement_items = []
+        self.last_measurement_copy_text = None
+
+    def copy_last_measurement_to_clipboard(self) -> bool:
+        """Vágólapra másolja az utolsó mérőpont koordinátáját."""
+        if not self.last_measurement_copy_text:
+            return False
+        QApplication.clipboard().setText(self.last_measurement_copy_text)
+        return True
 
     def mousePressEvent(self, event) -> None:
         if event.button() == Qt.LeftButton and self._add_temperature_measurement(event):
@@ -123,9 +138,14 @@ class ImageViewer(QGraphicsView):
         marker_pen = QPen(Qt.red)
         marker_pen.setWidth(2)
         marker_brush = QBrush(Qt.red)
+        label_text = f"{temperature:.1f} °C"
+        copy_text = ""
+        if self.point_info_provider is not None:
+            label_text, copy_text = self.point_info_provider(x, y, temperature)
+
         marker = self.scene.addEllipse(x - 4, y - 4, 8, 8, marker_pen, marker_brush)
-        label = self.scene.addText(f"{temperature:.1f} °C\n({x}, {y})")
-        label.setFont(QFont("Arial", 8))
+        label = self.scene.addText(label_text)
+        label.setFont(QFont("Arial", 5))
         label.setDefaultTextColor(Qt.black)
         label_pos = QPointF(x + 8, y - 28)
         label.setPos(label_pos)
@@ -138,7 +158,8 @@ class ImageViewer(QGraphicsView):
         background.setZValue(9)
         marker.setZValue(10)
         label.setZValue(11)
-        self.measurement_items.append({"point": QPointF(x, y), "items": [marker, background, label]})
+        self.measurement_items.append({"point": QPointF(x, y), "items": [marker, background, label], "copy_text": copy_text})
+        self.last_measurement_copy_text = copy_text or None
         return True
 
     def _remove_nearest_measurement(self, event) -> bool:
@@ -158,6 +179,11 @@ class ImageViewer(QGraphicsView):
         measurement = self.measurement_items.pop(nearest_index)
         for item in measurement["items"]:
             self.scene.removeItem(item)
+        if self.measurement_items:
+            copy_text = self.measurement_items[-1].get("copy_text")
+            self.last_measurement_copy_text = copy_text if isinstance(copy_text, str) and copy_text else None
+        else:
+            self.last_measurement_copy_text = None
         return True
 
     def wheelEvent(self, event) -> None:

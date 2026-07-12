@@ -35,6 +35,7 @@ from src.storage.cache_store import CacheStore
 from src.storage.csv_exporter import export_csv
 from src.storage.project_store import ProjectStore
 from src.thermal.dji_sdk_wrapper import DjiSdkError, DjiThermalSdk
+from src.thermal.geospatial import pixel_to_gps, resolve_thermal_gsd
 from src.thermal.palette_renderer import render_temperature
 from src.thermal.thermal_processor import ThermalProcessor
 from src.thermal.webodm_exporter import WebOdmRadiometricExporter
@@ -118,9 +119,12 @@ class MainWindow(QMainWindow):
         self.next_image_button.clicked.connect(self.next_image)
         self.clear_points_button = QPushButton("Mérési pontok törlése")
         self.clear_points_button.clicked.connect(self.clear_temperature_points)
+        self.copy_coordinate_button = QPushButton("Koordináta másolása")
+        self.copy_coordinate_button.clicked.connect(self.copy_last_temperature_coordinate)
         image_nav.addWidget(self.previous_image_button)
         image_nav.addWidget(self.next_image_button)
         image_nav.addWidget(self.clear_points_button)
+        image_nav.addWidget(self.copy_coordinate_button)
         image_nav.addStretch(1)
         viewer_layout.addLayout(image_nav)
 
@@ -347,6 +351,12 @@ class MainWindow(QMainWindow):
         self.viewer.clear_measurements()
         self.operation_label.setText("Mérési pontok törölve.")
 
+    def copy_last_temperature_coordinate(self) -> None:
+        if self.viewer.copy_last_measurement_to_clipboard():
+            self.operation_label.setText("Koordináta vágólapra másolva.")
+        else:
+            self.operation_label.setText("Nincs másolható mérőpont-koordináta.")
+
     def export_results(self) -> None:
         full, hotspots = export_csv(self.records, "output")
         QMessageBox.information(self, "CSV export", f"Elkészült:\n{full}\n{hotspots}")
@@ -425,6 +435,7 @@ class MainWindow(QMainWindow):
                 if img is not None:
                     rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
                     self.viewer.set_image(rgb)
+                    self.viewer.set_point_info_provider(None)
                     self.viewer.set_temperature_matrix(None)
                     self.viewer.set_roi(None)
                     return
@@ -433,6 +444,7 @@ class MainWindow(QMainWindow):
         if matrix is not None:
             rgb = render_temperature(matrix, self.settings_panel.palette.currentText())
             self.viewer.set_image(rgb)
+            self.viewer.set_point_info_provider(self._point_info_provider(record, matrix.shape))
             self.viewer.set_temperature_matrix(matrix)
             if record.roi_result:
                 self.viewer.set_roi(record.roi_result, self.settings_panel.show_box.isChecked(), self.settings_panel.show_label.isChecked())
@@ -443,8 +455,25 @@ class MainWindow(QMainWindow):
         if img is not None:
             rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
             self.viewer.set_image(rgb)
+            self.viewer.set_point_info_provider(None)
             self.viewer.set_temperature_matrix(None)
             self._show_roi_preview(rgb.shape[1], rgb.shape[0])
+
+    def _point_info_provider(self, record: ImageRecord, image_shape: tuple[int, int]):
+        roi_settings = self.settings_panel.roi_settings()
+        gsd = record.roi_result.gsd_m_per_px if record.roi_result and record.roi_result.gsd_m_per_px else None
+        if gsd is None:
+            gsd = resolve_thermal_gsd(roi_settings, record.metadata, image_shape[1])
+
+        def provider(x: int, y: int, temperature: float) -> tuple[str, str]:
+            point = pixel_to_gps(record.metadata, image_shape, x, y, gsd)
+            if point is None:
+                return f"{temperature:.1f} °C\nGPS: nincs adat", ""
+            latitude, longitude = point
+            coordinate = f"{latitude:.7f}, {longitude:.7f}"
+            return f"{temperature:.1f} °C\n{coordinate}", coordinate
+
+        return provider
 
     def _show_roi_preview(self, image_w: int, image_h: int) -> None:
         """Feldolgozás előtt is láthatóvá teszi az aktív ROI méretét."""
