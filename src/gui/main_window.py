@@ -341,6 +341,18 @@ class MainWindow(QMainWindow):
         if self.current_index < len(self.records) - 1:
             self.image_list.setCurrentRow(self.current_index + 1)
 
+    def keyPressEvent(self, event) -> None:
+        """Bal/jobb kurzornyíllal vált az előző és következő kép között."""
+        if event.key() == Qt.Key_Left:
+            self.previous_image()
+            event.accept()
+            return
+        if event.key() == Qt.Key_Right:
+            self.next_image()
+            event.accept()
+            return
+        super().keyPressEvent(event)
+
     def toggle_view_mode(self) -> None:
         """Váltás a radiometrikus hőkép és a hozzá tartozó RGB kép között."""
         self.view_mode = "rgb" if self.view_mode == "thermal" else "thermal"
