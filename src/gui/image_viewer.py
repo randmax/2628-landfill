@@ -4,7 +4,7 @@ import math
 
 import numpy as np
 from PySide6.QtCore import QPointF, QRectF, Qt
-from PySide6.QtGui import QBrush, QImage, QPen, QPixmap
+from PySide6.QtGui import QBrush, QColor, QImage, QPen, QPixmap
 from PySide6.QtWidgets import QGraphicsPixmapItem, QGraphicsRectItem, QGraphicsScene, QGraphicsTextItem, QGraphicsView
 
 from src.models.roi_result import RoiResult
@@ -85,6 +85,7 @@ class ImageViewer(QGraphicsView):
     def set_temperature_matrix(self, matrix: np.ndarray | None) -> None:
         """Beállítja a kattintható hőmérsékleti mintavétel forrását."""
         self.temperature_matrix = matrix
+        self.viewport().setCursor(Qt.CrossCursor if matrix is not None else Qt.ArrowCursor)
         self.clear_measurements()
 
     def clear_measurements(self) -> None:
@@ -120,8 +121,18 @@ class ImageViewer(QGraphicsView):
         marker = self.scene.addEllipse(x - 4, y - 4, 8, 8, marker_pen, marker_brush)
         label = self.scene.addText(f"{temperature:.1f} °C\n({x}, {y})")
         label.setDefaultTextColor(Qt.black)
-        label.setPos(QPointF(x + 6, y - 24))
-        self.measurement_items.append({"point": QPointF(x, y), "items": [marker, label]})
+        label_pos = QPointF(x + 8, y - 28)
+        label.setPos(label_pos)
+        label_rect = label.mapToScene(label.boundingRect()).boundingRect().adjusted(-4, -3, 4, 3)
+        background = self.scene.addRect(
+            label_rect,
+            QPen(QColor(17, 24, 39)),
+            QBrush(QColor(255, 255, 255, 225)),
+        )
+        background.setZValue(9)
+        marker.setZValue(10)
+        label.setZValue(11)
+        self.measurement_items.append({"point": QPointF(x, y), "items": [marker, background, label]})
         return True
 
     def _remove_nearest_measurement(self, event) -> bool:
