@@ -4,7 +4,7 @@ import math
 
 import numpy as np
 from PySide6.QtCore import QPointF, QRectF, Qt
-from PySide6.QtGui import QBrush, QColor, QImage, QPen, QPixmap
+from PySide6.QtGui import QBrush, QColor, QFont, QImage, QPen, QPixmap
 from PySide6.QtWidgets import QGraphicsPixmapItem, QGraphicsRectItem, QGraphicsScene, QGraphicsTextItem, QGraphicsView
 
 from src.models.roi_result import RoiResult
@@ -85,7 +85,12 @@ class ImageViewer(QGraphicsView):
     def set_temperature_matrix(self, matrix: np.ndarray | None) -> None:
         """Beállítja a kattintható hőmérsékleti mintavétel forrását."""
         self.temperature_matrix = matrix
-        self.viewport().setCursor(Qt.CrossCursor if matrix is not None else Qt.ArrowCursor)
+        if matrix is not None:
+            self.setDragMode(QGraphicsView.NoDrag)
+            self.viewport().setCursor(Qt.CrossCursor)
+        else:
+            self.setDragMode(QGraphicsView.ScrollHandDrag)
+            self.viewport().setCursor(Qt.ArrowCursor)
         self.clear_measurements()
 
     def clear_measurements(self) -> None:
@@ -120,6 +125,7 @@ class ImageViewer(QGraphicsView):
         marker_brush = QBrush(Qt.red)
         marker = self.scene.addEllipse(x - 4, y - 4, 8, 8, marker_pen, marker_brush)
         label = self.scene.addText(f"{temperature:.1f} °C\n({x}, {y})")
+        label.setFont(QFont("Arial", 8))
         label.setDefaultTextColor(Qt.black)
         label_pos = QPointF(x + 8, y - 28)
         label.setPos(label_pos)
